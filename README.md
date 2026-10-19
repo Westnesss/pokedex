@@ -84,6 +84,3 @@ In `app.js` you can adjust:
 - Pokémon and their names are trademarks of Nintendo, Game Freak, and The Pokémon Company.
   This is a non-profit educational project.
 
-## Author
-
-**[Your name]** · [Course / University] · [Year]
