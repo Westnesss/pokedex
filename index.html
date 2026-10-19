@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pokédex</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- BARRA SUPERIOR: marca + buscador -->
+  <header class="top">
+    <div class="top__inner">
+      <h1 class="brand"><span class="brand__ball" aria-hidden="true"></span>Pokédex</h1>
+
+      <form class="search" id="searchForm" role="search" autocomplete="off">
+        <div class="search__field">
+          <input
+            id="searchInput"
+            type="text"
+            placeholder="Busca un Pokémon (nombre o número)"
+            aria-label="Buscar Pokémon"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="suggestions"
+            aria-autocomplete="both">
+          <button type="submit" class="search__btn" aria-label="Buscar">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m20 20-3.5-3.5"></path>
+            </svg>
+          </button>
+        </div>
+        <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <!-- RESULTADOS DE LA BÚSQUEDA (aparecen al presionar la lupa) -->
+    <section id="resultsSection" class="block block--results" hidden aria-live="polite">
+      <div class="block__head">
+        <h2 id="resultsTitle"></h2>
+        <button type="button" class="btn btn--ghost" id="clearSearch">Limpiar búsqueda</button>
+      </div>
+      <div id="resultsGrid" class="grid"></div>
+    </section>
+
+    <!-- LISTA PRINCIPAL (endpoint 1, paginada) -->
+    <section class="block">
+      <div class="block__head">
+        <h2>Todos los Pokémon</h2>
+        <span id="count" class="muted"></span>
+      </div>
+      <div id="status" class="status" role="status"></div>
+      <div id="grid" class="grid"></div>
+      <div id="moreWrap" class="more" hidden>
+        <button type="button" class="btn btn--primary" id="moreBtn">Cargar más</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <h2>Endpoints de PokeAPI usados</h2>
+    <ul>
+      <li><code>GET /pokemon?limit=24&amp;offset=0</code> — lista paginada de Pokémon (también el catálogo para buscar)</li>
+      <li><code>GET /pokemon/{id}</code> — imagen, tipos, medidas, habilidades y estadísticas</li>
+      <li><code>GET /pokemon-species/{id}</code> — categoría y descripción en español</li>
+    </ul>
+  </footer>
+
+  <!-- POPUP DE DETALLE -->
+  <dialog id="detailDialog" aria-label="Detalle del Pokémon">
+    <div id="detailBody" class="modal__body"></div>
+    <div class="modal__footer">
+      <button type="button" class="btn btn--dark" id="backBtn">← Regresar</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
