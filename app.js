@@ -3,13 +3,10 @@
 // ============================================================
 const API = "https://pokeapi.co/api/v2";
 const POR_PAGINA = 24;          // tarjetas que se cargan cada vez
-const RETRASO_MS = 4000;        // espera antes de sugerir / autocompletar (4 s)
+const RETRASO_MS = 4000;        // debounce: espera SIN mostrar nada antes de sugerir / autocompletar (4 s)
 const MAX_SUGERENCIAS = 8;
 const MAX_RESULTADOS = 60;
 const ID_FORMAS = 10000;        // ids >= 10000 son formas alternativas (megas, regionales…)
-
-// El CSS usa el mismo valor para animar la barra de espera
-document.documentElement.style.setProperty("--retraso", `${RETRASO_MS}ms`);
 
 const imgOficial = (id) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
@@ -58,8 +55,6 @@ let promesaCatalogo = null;
 let consultaActiva = "";
 let sugerencias = [];
 let indiceActivo = -1;
-let temporizador = null;        // espera de 4 s
-let cuentaRegresiva = null;     // actualiza el texto "en 3 s…"
 
 let tokenDetalle = 0;           // evita mostrar respuestas viejas en el popup
 const cacheDetalle = new Map();
@@ -227,7 +222,7 @@ function crearTarjeta(p) {
 }
 
 // ============================================================
-//  Búsqueda: sugerencias con espera de 4 s + autocompletado
+//  Búsqueda: sugerencias con debounce de 4 s + autocompletado
 // ============================================================
 function buscarCoincidencias(texto, limite) {
   const q = normalizar(texto);
@@ -275,46 +270,31 @@ function ocultarSugerencias() {
   indiceActivo = -1;
 }
 
-function cancelarEspera() {
-  clearTimeout(temporizador);
-  clearInterval(cuentaRegresiva);
+// ---- Debounce: Lodash espera RETRASO_MS desde la ÚLTIMA tecla, sin mostrar nada ----
+// Si la librería no cargó (sin internet / CDN bloqueado) se usa una versión mínima propia.
+function debounceBasico(fn, ms) {
+  let t;
+  const d = (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+  d.cancel = () => clearTimeout(t);
+  return d;
 }
 
-const textoEspera = (s) => `Mostrando sugerencias en ${s} s…`;
+const debounce = (window._ && window._.debounce) || debounceBasico;
+const mostrarSugerenciasDebounced = debounce(mostrarSugerencias, RETRASO_MS);
+const cancelarEspera = () => mostrarSugerenciasDebounced.cancel();
 
-// Se llama en cada tecla: reinicia la espera de 4 segundos
+// Se llama en cada tecla: oculta lo anterior y reinicia la espera (en silencio)
 function programarSugerencias() {
-  cancelarEspera();
   sugerencias = [];
-  indiceActivo = -1;
-  el.input.removeAttribute("aria-activedescendant");
-
+  ocultarSugerencias();
   if (!el.input.value.trim()) {
-    ocultarSugerencias();
+    cancelarEspera();
     return;
   }
-
-  let restante = RETRASO_MS / 1000;
-  mostrarEspera(restante);
-
-  cuentaRegresiva = setInterval(() => {
-    restante -= 1;
-    const t = el.suggestions.querySelector(".wait__text");
-    if (t && restante > 0) t.textContent = textoEspera(restante);
-  }, 1000);
-
-  temporizador = setTimeout(() => {
-    clearInterval(cuentaRegresiva);
-    mostrarSugerencias();
-  }, RETRASO_MS);
-}
-
-function mostrarEspera(segundos) {
-  const li = nodo("li", "suggestions__wait");
-  li.setAttribute("role", "presentation");
-  li.append(nodo("span", "wait__text", textoEspera(segundos)), nodo("span", "wait__bar"));
-  el.suggestions.replaceChildren(li);
-  abrirLista();
+  mostrarSugerenciasDebounced();
 }
 
 function mostrarMensajeLista(texto) {
@@ -326,10 +306,7 @@ function mostrarMensajeLista(texto) {
 
 async function mostrarSugerencias() {
   const texto = el.input.value;
-  if (!texto.trim()) {
-    ocultarSugerencias();
-    return;
-  }
+  if (!texto.trim() || document.activeElement !== el.input) return;
 
   try {
     await cargarCatalogo();
@@ -337,7 +314,7 @@ async function mostrarSugerencias() {
     mostrarMensajeLista("No se pudo cargar la lista de Pokémon.");
     return;
   }
-  if (texto !== el.input.value) return; // siguió escribiendo: otro temporizador se encarga
+  if (texto !== el.input.value) return; // siguió escribiendo: otra ejecución del debounce se encarga
 
   sugerencias = buscarCoincidencias(texto, MAX_SUGERENCIAS);
   if (!sugerencias.length) {
