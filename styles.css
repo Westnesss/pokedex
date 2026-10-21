@@ -8,7 +8,6 @@
   --red-dark: #a3242c;
   --red-soft: #fbe9ea;
   --radius: 12px;
-  --retraso: 4000ms; /* lo define app.js con la misma constante que usa el temporizador */
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 }
@@ -124,7 +123,7 @@ h1, h2, h3 {
 
 .search__btn:hover { background: var(--red-dark); }
 
-/* ---------- Sugerencias (con espera) ---------- */
+/* ---------- Sugerencias ---------- */
 .suggestions {
   position: absolute;
   top: calc(100% + 6px);
@@ -163,37 +162,6 @@ h1, h2, h3 {
   background: transparent;
   color: var(--red);
   font-weight: 700;
-}
-
-.suggestions__wait {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.wait__bar {
-  position: relative;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--line);
-  overflow: hidden;
-}
-
-.wait__bar::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--red);
-  transform-origin: left;
-  animation: espera var(--retraso) linear forwards;
-}
-
-@keyframes espera {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
 }
 
 /* ---------- Botones ---------- */
@@ -311,6 +279,42 @@ main {
 }
 
 .img--rota { visibility: hidden; }
+
+/* Resultados de búsqueda: datos que llegan de los eslabones 2 y 3 */
+.card__types { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 4px; }
+.chip--sm { padding: 2px 10px; font-size: 0.75rem; }
+.card__cat { color: var(--muted); font-size: 0.8rem; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: #fff;
+}
+
+.badge--mitico { background: #7a3fb0; }
+
+/* Tarjetas de carga (esqueletos) */
+.card--skeleton { pointer-events: none; cursor: default; }
+
+.skeleton {
+  background: linear-gradient(90deg, #e6ebf4 25%, #f4f6fa 50%, #e6ebf4 75%);
+  background-size: 200% 100%;
+  animation: brillo 1.2s ease-in-out infinite;
+}
+
+.skeleton--linea { display: block; height: 14px; width: 80%; margin-top: 6px; border-radius: 6px; }
+.skeleton--corta { width: 50%; }
+
+@keyframes brillo {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
 
 .card__num { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
 .card__name { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
@@ -435,7 +439,7 @@ dialog::backdrop { background: rgba(27, 34, 51, 0.6); }
 }
 
 .foot h2 { font-size: 1rem; color: var(--ink); margin-bottom: 8px; }
-.foot ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.foot ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
 .foot code { background: #e6ebf4; padding: 1px 6px; border-radius: 4px; color: var(--ink); overflow-wrap: anywhere; }
 
 /* ---------- Pantallas más grandes ---------- */
@@ -461,6 +465,7 @@ dialog::backdrop { background: rgba(27, 34, 51, 0.6); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
   .card { transition: none; }
   dialog[open] { animation: none; }
 }
