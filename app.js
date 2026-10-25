@@ -1,65 +1,56 @@
-// ============================================================
-//  Configuración
-// ============================================================
-const API = "https://pokeapi.co/api/v2";
-const POR_PAGINA = 24;          // tarjetas que se cargan cada vez
-const RETRASO_MS = 4000;        // debounce: espera SIN mostrar nada antes de sugerir / autocompletar (4 s)
-const MAX_SUGERENCIAS = 8;
-const MAX_RESULTADOS = 60;
-const ID_FORMAS = 10000;        // ids >= 10000 son formas alternativas (megas, regionales…)
+// UI layer. Depends on api.js, which must be loaded first.
+const PAGE_SIZE = 24;
+const DEBOUNCE_MS = 4000;
+const MAX_SUGGESTIONS = 8;
+const RESULTS_BATCH_SIZE = 12;
 
-const imgOficial = (id) =>
+const officialArtUrl = (id) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
-const imgSprite = (id) =>
+const spriteUrl = (id) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
-// Tipos: [nombre en español, color de fondo, color de texto]
-const TIPOS = {
-  normal:   ["Normal",    "#6f6f5f", "#ffffff"],
-  fire:     ["Fuego",     "#c4441a", "#ffffff"],
-  water:    ["Agua",      "#2f6fcb", "#ffffff"],
-  electric: ["Eléctrico", "#f0c419", "#2a2200"],
-  grass:    ["Planta",    "#357f32", "#ffffff"],
-  ice:      ["Hielo",     "#7fd0de", "#0f2f36"],
-  fighting: ["Lucha",     "#b5322c", "#ffffff"],
-  poison:   ["Veneno",    "#8f3fa6", "#ffffff"],
-  ground:   ["Tierra",    "#94692a", "#ffffff"],
-  flying:   ["Volador",   "#5568c4", "#ffffff"],
-  psychic:  ["Psíquico",  "#c32e69", "#ffffff"],
-  bug:      ["Bicho",     "#5f7d0f", "#ffffff"],
-  rock:     ["Roca",      "#7d6e33", "#ffffff"],
-  ghost:    ["Fantasma",  "#5b4a8f", "#ffffff"],
-  dragon:   ["Dragón",    "#4b3fd0", "#ffffff"],
-  dark:     ["Siniestro", "#4a3f3a", "#ffffff"],
-  steel:    ["Acero",     "#5c7587", "#ffffff"],
-  fairy:    ["Hada",      "#eba1d2", "#3a1030"],
+// type -> [label, background, text color]
+const TYPES = {
+  normal:   ["Normal",   "#6f6f5f", "#ffffff"],
+  fire:     ["Fire",     "#c4441a", "#ffffff"],
+  water:    ["Water",    "#2f6fcb", "#ffffff"],
+  electric: ["Electric", "#f0c419", "#2a2200"],
+  grass:    ["Grass",    "#357f32", "#ffffff"],
+  ice:      ["Ice",      "#7fd0de", "#0f2f36"],
+  fighting: ["Fighting", "#b5322c", "#ffffff"],
+  poison:   ["Poison",   "#8f3fa6", "#ffffff"],
+  ground:   ["Ground",   "#94692a", "#ffffff"],
+  flying:   ["Flying",   "#5568c4", "#ffffff"],
+  psychic:  ["Psychic",  "#c32e69", "#ffffff"],
+  bug:      ["Bug",      "#5f7d0f", "#ffffff"],
+  rock:     ["Rock",     "#7d6e33", "#ffffff"],
+  ghost:    ["Ghost",    "#5b4a8f", "#ffffff"],
+  dragon:   ["Dragon",   "#4b3fd0", "#ffffff"],
+  dark:     ["Dark",     "#4a3f3a", "#ffffff"],
+  steel:    ["Steel",    "#5c7587", "#ffffff"],
+  fairy:    ["Fairy",    "#eba1d2", "#3a1030"],
 };
 
-const ESTADISTICAS = {
-  hp: "PS",
-  attack: "Ataque",
-  defense: "Defensa",
-  "special-attack": "At. especial",
-  "special-defense": "Def. especial",
-  speed: "Velocidad",
+const STAT_LABELS = {
+  hp: "HP",
+  attack: "Attack",
+  defense: "Defense",
+  "special-attack": "Sp. Atk",
+  "special-defense": "Sp. Def",
+  speed: "Speed",
 };
 
-// ---------------- Estado ----------------
+// ---------------- State ----------------
 let offset = 0;
-let mostrados = 0;
-let cargandoPagina = false;
+let shownCount = 0;
+let loadingPage = false;
 
-let catalogo = null;            // [{id, nombre}] de todos los Pokémon (para buscar)
-let promesaCatalogo = null;
+let suggestions = [];
+let activeIndex = -1;
+let currentSearch = null;   // { query, text, shown, total, discarded, controller }
+let detailToken = 0;        // discards stale responses in the detail dialog
 
-let consultaActiva = "";
-let sugerencias = [];
-let indiceActivo = -1;
-
-let tokenDetalle = 0;           // evita mostrar respuestas viejas en el popup
-const cacheDetalle = new Map();
-
-// ---------------- Elementos del DOM ----------------
+// ---------------- DOM elements ----------------
 const $ = (id) => document.getElementById(id);
 const el = {
   form: $("searchForm"),
@@ -67,7 +58,10 @@ const el = {
   suggestions: $("suggestions"),
   resultsSection: $("resultsSection"),
   resultsTitle: $("resultsTitle"),
+  resultsNote: $("resultsNote"),
   resultsGrid: $("resultsGrid"),
+  resultsMoreWrap: $("resultsMoreWrap"),
+  resultsMoreBtn: $("resultsMoreBtn"),
   clearSearch: $("clearSearch"),
   grid: $("grid"),
   count: $("count"),
@@ -79,489 +73,486 @@ const el = {
   backBtn: $("backBtn"),
 };
 
-// ============================================================
-//  Utilidades
-// ============================================================
-function nodo(tag, clase, texto) {
-  const n = document.createElement(tag);
-  if (clase) n.className = clase;
-  if (texto !== undefined) n.textContent = texto;
-  return n;
+// ---------------- UI helpers ----------------
+function createNode(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
-const capitalizar = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-const nombreBonito = (n) => n.split("-").map(capitalizar).join(" ");
-const numero = (id) => `#${String(id).padStart(3, "0")}`;
+const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const prettyName = (n) => n.split("-").map(capitalize).join(" ");
+const dexNumber = (id) => `#${String(id).padStart(3, "0")}`;
 
-// "https://pokeapi.co/api/v2/pokemon/25/"  →  25
-const idDesdeUrl = (url) => Number(url.split("/").filter(Boolean).pop());
-const aItem = (r) => ({ id: idDesdeUrl(r.url), nombre: r.name });
-
-// Quita tildes y mayúsculas; los espacios se vuelven guiones ("mr mime" → "mr-mime")
-function normalizar(t) {
-  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, "-");
-}
-
-function crearImagen(id, alt, perezosa = true) {
+function createImage(id, alt, lazy = true) {
   const img = document.createElement("img");
-  img.src = imgOficial(id);
+  img.src = officialArtUrl(id);
   img.alt = alt;
   img.decoding = "async";
-  if (perezosa) img.loading = "lazy";
+  if (lazy) img.loading = "lazy";
   img.addEventListener("error", () => {
-    if (!img.dataset.respaldo) {
-      img.dataset.respaldo = "1";
-      img.src = imgSprite(id);          // plan B: sprite pequeño
+    if (!img.dataset.fallback) {
+      img.dataset.fallback = "1";
+      img.src = spriteUrl(id);
     } else {
-      img.classList.add("img--rota");   // plan C: ocultar imagen rota
+      img.classList.add("img--broken");
     }
   });
   return img;
 }
 
-// ============================================================
-//  Comunicación con PokeAPI
-// ============================================================
-async function api(ruta) {
-  const res = await fetch(API + ruta);
-  if (!res.ok) throw new Error(`Error ${res.status}`);
-  return res.json();
+function createTypeChip(typeName, small = false) {
+  const [label, bg, fg] = TYPES[typeName] || [prettyName(typeName), "#5b6577", "#ffffff"];
+  const chip = createNode("span", "chip" + (small ? " chip--sm" : ""), label);
+  chip.style.setProperty("--chip-bg", bg);
+  chip.style.setProperty("--chip-fg", fg);
+  return chip;
 }
 
-// Endpoint 1: lista paginada → tarjetas de la página principal
-async function cargarPagina() {
-  if (cargandoPagina) return;
-  cargandoPagina = true;
+// Returns the latest English entry (the most recent game version).
+function englishText(entries, field) {
+  if (!entries) return "";
+  const matches = entries.filter((x) => x.language.name === "en");
+  return matches.length ? matches[matches.length - 1][field] : "";
+}
+
+// ---------------- Main list (step 1, paginated) ----------------
+function showStatus(text, { error = false, retry = null } = {}) {
+  el.status.replaceChildren();
+  el.status.classList.toggle("status--error", error);
+  if (!text) return;
+  el.status.append(text);
+  if (retry) {
+    const button = createNode("button", "btn btn--ghost", "Retry");
+    button.type = "button";
+    button.addEventListener("click", retry);
+    el.status.append(button);
+  }
+}
+
+async function loadPage() {
+  if (loadingPage) return;
+  loadingPage = true;
   el.moreBtn.disabled = true;
-  mostrarEstado("Cargando Pokémon…");
+  showStatus("Loading Pokémon…");
 
   try {
-    const data = await api(`/pokemon?limit=${POR_PAGINA}&offset=${offset}`);
-    const items = data.results.map(aItem);
-    const validos = items.filter((p) => p.id < ID_FORMAS);
+    const data = await listPokemon(PAGE_SIZE, offset);
+    const items = data.results.map(toItem);
+    const valid = items.filter((p) => p.id < FORM_ID_START);
 
-    el.grid.append(...validos.map(crearTarjeta));
-    offset += POR_PAGINA;
-    mostrados += validos.length;
+    el.grid.append(...valid.map(createCard));
+    offset += PAGE_SIZE;
+    shownCount += valid.length;
 
-    el.count.textContent = `${mostrados} Pokémon`;
-    el.moreWrap.hidden = !(data.next && validos.length === items.length);
-    mostrarEstado("");
+    el.count.textContent = `${shownCount} Pokémon`;
+    el.moreWrap.hidden = !(data.next && valid.length === items.length);
+    showStatus("");
   } catch (err) {
-    mostrarEstado("No se pudieron cargar los Pokémon. Revisa tu conexión a internet.", {
-      error: true,
-      reintentar: cargarPagina,
-    });
+    const reason = err.timeout ? "The API took too long to respond." : "Check your internet connection.";
+    showStatus(`Could not load Pokémon. ${reason}`, { error: true, retry: loadPage });
   } finally {
-    cargandoPagina = false;
+    loadingPage = false;
     el.moreBtn.disabled = false;
   }
 }
 
-// Endpoint 1 (otra vez): catálogo completo de nombres, solo para buscar
-function cargarCatalogo() {
-  if (!promesaCatalogo) {
-    promesaCatalogo = api("/pokemon?limit=2000&offset=0")
-      .then((data) => {
-        catalogo = data.results.map(aItem).filter((p) => p.id < ID_FORMAS);
-        return catalogo;
-      })
-      .catch((err) => {
-        promesaCatalogo = null;   // permite reintentar más tarde
-        throw err;
-      });
-  }
-  return promesaCatalogo;
-}
-
-// Endpoints 2 y 3: datos del Pokémon + descripción de su especie
-async function obtenerDetalle(id) {
-  if (cacheDetalle.has(id)) return cacheDetalle.get(id);
-
-  const [poke, especie] = await Promise.allSettled([
-    api(`/pokemon/${id}`),
-    api(`/pokemon-species/${id}`),
-  ]);
-  if (poke.status !== "fulfilled") throw poke.reason;
-
-  const datos = {
-    poke: poke.value,
-    especie: especie.status === "fulfilled" ? especie.value : null,
-  };
-  cacheDetalle.set(id, datos);
-  return datos;
-}
-
-// ============================================================
-//  Render: tarjetas y estado
-// ============================================================
-function mostrarEstado(texto, { error = false, reintentar = null } = {}) {
-  el.status.replaceChildren();
-  el.status.classList.toggle("status--error", error);
-  if (!texto) return;
-  el.status.append(texto);
-  if (reintentar) {
-    const b = nodo("button", "btn btn--ghost", "Reintentar");
-    b.type = "button";
-    b.addEventListener("click", reintentar);
-    el.status.append(b);
-  }
-}
-
-function crearTarjeta(p) {
-  const card = nodo("button", "card");
+function createCard(p) {
+  const card = createNode("button", "card");
   card.type = "button";
-  card.setAttribute("aria-label", `Ver detalles de ${nombreBonito(p.nombre)}`);
+  card.setAttribute("aria-label", `View details for ${prettyName(p.name)}`);
 
-  const imgWrap = nodo("div", "card__img");
-  imgWrap.append(crearImagen(p.id, ""));
+  const imageWrap = createNode("div", "card__img");
+  imageWrap.append(createImage(p.id, ""));
 
-  card.append(imgWrap, nodo("span", "card__num", numero(p.id)), nodo("span", "card__name", nombreBonito(p.nombre)));
-  card.addEventListener("click", () => abrirDetalle(p.id, p.nombre));
+  card.append(imageWrap, createNode("span", "card__num", dexNumber(p.id)), createNode("span", "card__name", prettyName(p.name)));
+  card.addEventListener("click", () => openDetail(p));
   return card;
 }
 
-// ============================================================
-//  Búsqueda: sugerencias con debounce de 4 s + autocompletado
-// ============================================================
-function buscarCoincidencias(texto, limite) {
-  const q = normalizar(texto);
-  if (!q || !catalogo) return [];
+// Search result card: base card plus data from steps 2 and 3.
+function createDetailedCard({ item, poke, species }) {
+  const card = createCard(item);
 
-  // Si escribe números, busca por número de Pokédex
-  if (/^\d+$/.test(q)) {
-    const n = String(Number(q));
-    const lista = catalogo.filter((p) => String(p.id).startsWith(n));
-    lista.sort((a, b) => (String(a.id) === n ? -1 : 0) - (String(b.id) === n ? -1 : 0));
-    return lista.slice(0, limite);
-  }
+  const types = createNode("div", "card__types");
+  poke.types.forEach((t) => types.append(createTypeChip(t.type.name, true)));
+  card.append(types);
 
-  const empiezan = [];
-  const contienen = [];
-  for (const p of catalogo) {
-    if (p.nombre.startsWith(q)) empiezan.push(p);
-    else if (p.nombre.includes(q)) contienen.push(p);
-  }
-  return [...empiezan, ...contienen].slice(0, limite);
+  const genus = englishText(species && species.genera, "genus");
+  if (genus) card.append(createNode("span", "card__category", genus));
+
+  if (species && species.is_mythical) card.append(createNode("span", "badge badge--mythical", "Mythical"));
+  else if (species && species.is_legendary) card.append(createNode("span", "badge", "Legendary"));
+
+  return card;
 }
 
-function resaltar(texto, consulta) {
-  const frag = document.createDocumentFragment();
-  const q = normalizar(consulta);
-  const i = q ? normalizar(texto).indexOf(q) : -1;
+function showSkeletons(container, count) {
+  const cards = Array.from({ length: count }, () => {
+    const card = createNode("div", "card card--skeleton");
+    card.setAttribute("aria-hidden", "true");
+    card.append(
+      createNode("div", "card__img skeleton"),
+      createNode("span", "skeleton skeleton--line"),
+      createNode("span", "skeleton skeleton--line skeleton--short")
+    );
+    return card;
+  });
+  container.replaceChildren(...cards);
+}
+
+// ---------------- Suggestions (debounced) and autocomplete ----------------
+function highlight(text, query) {
+  const fragment = document.createDocumentFragment();
+  const q = normalize(query);
+  const i = q ? normalize(text).indexOf(q) : -1;
   if (i < 0) {
-    frag.append(texto);
-    return frag;
+    fragment.append(text);
+    return fragment;
   }
-  const marca = nodo("mark", "", texto.slice(i, i + q.length));
-  frag.append(texto.slice(0, i), marca, texto.slice(i + q.length));
-  return frag;
+  const mark = createNode("mark", "", text.slice(i, i + q.length));
+  fragment.append(text.slice(0, i), mark, text.slice(i + q.length));
+  return fragment;
 }
 
-function abrirLista() {
+function openList() {
   el.suggestions.hidden = false;
   el.input.setAttribute("aria-expanded", "true");
 }
 
-function ocultarSugerencias() {
+function hideSuggestions() {
   el.suggestions.hidden = true;
   el.input.setAttribute("aria-expanded", "false");
   el.input.removeAttribute("aria-activedescendant");
-  indiceActivo = -1;
+  activeIndex = -1;
 }
 
-// ---- Debounce: Lodash espera RETRASO_MS desde la ÚLTIMA tecla, sin mostrar nada ----
-// Si la librería no cargó (sin internet / CDN bloqueado) se usa una versión mínima propia.
-function debounceBasico(fn, ms) {
-  let t;
-  const d = (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+// Minimal fallback in case Lodash failed to load (offline or blocked CDN).
+function basicDebounce(fn, ms) {
+  let timer;
+  const debounced = (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
   };
-  d.cancel = () => clearTimeout(t);
-  return d;
+  debounced.cancel = () => clearTimeout(timer);
+  return debounced;
 }
 
-const debounce = (window._ && window._.debounce) || debounceBasico;
-const mostrarSugerenciasDebounced = debounce(mostrarSugerencias, RETRASO_MS);
-const cancelarEspera = () => mostrarSugerenciasDebounced.cancel();
+const debounce = (window._ && window._.debounce) || basicDebounce;
+const debouncedShowSuggestions = debounce(showSuggestions, DEBOUNCE_MS);
+const cancelPending = () => debouncedShowSuggestions.cancel();
 
-// Se llama en cada tecla: oculta lo anterior y reinicia la espera (en silencio)
-function programarSugerencias() {
-  sugerencias = [];
-  ocultarSugerencias();
+function scheduleSuggestions() {
+  suggestions = [];
+  hideSuggestions();
   if (!el.input.value.trim()) {
-    cancelarEspera();
+    cancelPending();
     return;
   }
-  mostrarSugerenciasDebounced();
+  debouncedShowSuggestions();
 }
 
-function mostrarMensajeLista(texto) {
-  const li = nodo("li", "suggestions__empty", texto);
+function showListMessage(text) {
+  const li = createNode("li", "suggestions__empty", text);
   li.setAttribute("role", "presentation");
   el.suggestions.replaceChildren(li);
-  abrirLista();
+  openList();
 }
 
-async function mostrarSugerencias() {
-  const texto = el.input.value;
-  if (!texto.trim() || document.activeElement !== el.input) return;
+async function showSuggestions() {
+  const text = el.input.value;
+  if (!text.trim() || document.activeElement !== el.input) return;
 
   try {
-    await cargarCatalogo();
+    await loadCatalog();
   } catch (err) {
-    mostrarMensajeLista("No se pudo cargar la lista de Pokémon.");
+    showListMessage("Could not load the Pokémon list.");
     return;
   }
-  if (texto !== el.input.value) return; // siguió escribiendo: otra ejecución del debounce se encarga
+  if (text !== el.input.value) return; // the user kept typing; a newer debounce call will handle it
 
-  sugerencias = buscarCoincidencias(texto, MAX_SUGERENCIAS);
-  if (!sugerencias.length) {
-    mostrarMensajeLista("Sin coincidencias");
+  suggestions = findMatches(text, MAX_SUGGESTIONS);
+  if (!suggestions.length) {
+    showListMessage("No matches");
     return;
   }
 
   el.suggestions.replaceChildren(
-    ...sugerencias.map((p, i) => {
-      const li = nodo("li", "suggestions__item");
+    ...suggestions.map((p, i) => {
+      const li = createNode("li", "suggestions__item");
       li.id = `sug-${i}`;
       li.setAttribute("role", "option");
 
       const sprite = document.createElement("img");
-      sprite.src = imgSprite(p.id);
+      sprite.src = spriteUrl(p.id);
       sprite.alt = "";
       sprite.loading = "lazy";
 
-      const nombre = nodo("span", "suggestions__name");
-      nombre.append(resaltar(nombreBonito(p.nombre), texto));
+      const name = createNode("span", "suggestions__name");
+      name.append(highlight(prettyName(p.name), text));
 
-      li.append(sprite, nombre, nodo("span", "suggestions__num", numero(p.id)));
-      // mousedown (y no click) para que el input no pierda el foco antes de elegir
+      li.append(sprite, name, createNode("span", "suggestions__num", dexNumber(p.id)));
+      // mousedown instead of click so the input keeps focus.
       li.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        elegirSugerencia(p);
+        selectSuggestion(p);
       });
       return li;
     })
   );
-  abrirLista();
-  autocompletarTexto(texto);
+  openList();
+  autocompleteInput(text);
 }
 
-// Completa la palabra en el campo y deja seleccionada la parte sugerida
-// (si el usuario sigue escribiendo o presiona Borrar, esa parte desaparece)
-function autocompletarTexto(texto) {
-  const primero = sugerencias[0];
-  const q = texto.toLowerCase();
-  if (!primero || document.activeElement !== el.input) return;
-  if (!primero.nombre.startsWith(q) || primero.nombre.length === q.length) return;
+// Completes the typed text inline and selects the suggested part.
+function autocompleteInput(text) {
+  const first = suggestions[0];
+  const q = text.toLowerCase();
+  if (!first || document.activeElement !== el.input) return;
+  if (!first.name.startsWith(q) || first.name.length === q.length) return;
 
-  el.input.value = texto + primero.nombre.slice(texto.length);
-  el.input.setSelectionRange(texto.length, el.input.value.length);
+  el.input.value = text + first.name.slice(text.length);
+  el.input.setSelectionRange(text.length, el.input.value.length);
 }
 
-function moverSeleccion(paso) {
-  if (el.suggestions.hidden || !sugerencias.length) return;
-  indiceActivo = (indiceActivo + paso + sugerencias.length) % sugerencias.length;
-  [...el.suggestions.children].forEach((li, i) => li.classList.toggle("is-active", i === indiceActivo));
-  el.input.setAttribute("aria-activedescendant", `sug-${indiceActivo}`);
+function moveSelection(step) {
+  if (el.suggestions.hidden || !suggestions.length) return;
+  activeIndex = (activeIndex + step + suggestions.length) % suggestions.length;
+  [...el.suggestions.children].forEach((li, i) => li.classList.toggle("is-active", i === activeIndex));
+  el.input.setAttribute("aria-activedescendant", `sug-${activeIndex}`);
 }
 
-function elegirSugerencia(p) {
-  el.input.value = p.nombre;
-  buscar();
+function selectSuggestion(p) {
+  el.input.value = p.name;
+  runSearch();
 }
 
-// ---- Lupa / Enter: búsqueda inmediata (sin esperar los 4 s) ----
-async function buscar() {
-  cancelarEspera();
-  ocultarSugerencias();
+// ---------------- Search: validate -> step 1 -> steps 2 and 3 (in batches) ----------------
+async function runSearch() {
+  cancelPending();
+  hideSuggestions();
+  if (currentSearch) currentSearch.controller.abort();
 
-  consultaActiva = el.input.value.trim();
-  if (!consultaActiva) {
-    limpiarBusqueda();
+  const text = el.input.value.trim();
+  if (!text) {
+    clearSearch();
     return;
   }
 
-  const miConsulta = consultaActiva;
   el.resultsSection.hidden = false;
-  el.resultsTitle.textContent = `Buscando “${miConsulta}”…`;
-  el.resultsGrid.replaceChildren();
+  el.resultsMoreWrap.hidden = true;
+  el.resultsNote.textContent = "";
+
+  const validation = validateQuery(text);
+  if (!validation.ok) {
+    currentSearch = null;
+    el.resultsTitle.textContent = `Results for “${text}”`;
+    el.resultsGrid.replaceChildren(createNode("p", "empty", validation.reason));
+    el.resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
+  const search = { query: validation.query, text, shown: 0, total: 0, discarded: 0, controller: new AbortController() };
+  currentSearch = search;
+  el.resultsTitle.textContent = `Searching “${text}”…`;
+  showSkeletons(el.resultsGrid, 6);
   el.resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
 
+  await loadBatch(search, true);
+}
+
+async function loadBatch(search, isFirst) {
+  el.resultsMoreBtn.disabled = true;
   try {
-    await cargarCatalogo();
+    const result = await searchChain(search.query, {
+      from: search.shown,
+      count: RESULTS_BATCH_SIZE,
+      signal: search.controller.signal,
+    });
+    if (currentSearch !== search) return; // a newer search replaced this one
+
+    search.total = result.total;
+    search.shown += result.processed;
+    search.discarded += result.discarded;
+    const cards = result.found.map(createDetailedCard);
+
+    if (isFirst) {
+      if (!search.total) {
+        el.resultsTitle.textContent = `Results for “${search.text}”`;
+        el.resultsGrid.replaceChildren(
+          createNode("p", "empty", "No Pokémon found with that name or number. Check the spelling.")
+        );
+        return;
+      }
+      el.resultsGrid.replaceChildren(
+        ...(cards.length
+          ? cards
+          : [createNode("p", "empty", "Results could not be verified with the API. Try again in a few seconds.")])
+      );
+    } else {
+      el.resultsGrid.append(...cards);
+    }
+    updateResultsHeader(search);
   } catch (err) {
-    if (miConsulta !== consultaActiva) return;
-    el.resultsTitle.textContent = `Resultados para “${miConsulta}”`;
-    el.resultsGrid.replaceChildren(nodo("p", "empty", "No se pudo cargar la lista de Pokémon. Revisa tu conexión e inténtalo de nuevo."));
-    return;
-  }
-  if (miConsulta !== consultaActiva) return;
-
-  const encontrados = buscarCoincidencias(miConsulta, MAX_RESULTADOS + 1);
-  const recortado = encontrados.length > MAX_RESULTADOS;
-  const lista = recortado ? encontrados.slice(0, MAX_RESULTADOS) : encontrados;
-
-  el.resultsTitle.textContent = lista.length
-    ? `Resultados para “${miConsulta}” (${recortado ? `primeros ${MAX_RESULTADOS}` : lista.length})`
-    : `Resultados para “${miConsulta}”`;
-
-  if (!lista.length) {
-    el.resultsGrid.replaceChildren(nodo("p", "empty", "No encontramos ningún Pokémon con ese nombre o número. Revisa la ortografía."));
-  } else {
-    el.resultsGrid.replaceChildren(...lista.map(crearTarjeta));
+    if (isAbortError(err) || currentSearch !== search) return;
+    const reason = err.timeout ? "The API took too long to respond." : "Could not complete the search. Check your connection.";
+    if (isFirst) {
+      el.resultsTitle.textContent = `Results for “${search.text}”`;
+      el.resultsGrid.replaceChildren(createNode("p", "empty", `${reason} Press the search button to try again.`));
+    } else {
+      el.resultsNote.textContent = reason;
+    }
+  } finally {
+    if (currentSearch === search) el.resultsMoreBtn.disabled = false;
   }
 }
 
-function limpiarBusqueda() {
-  cancelarEspera();
-  consultaActiva = "";
+function updateResultsHeader(search) {
+  const complete = search.shown >= search.total;
+  el.resultsTitle.textContent = complete
+    ? `Results for “${search.text}” (${search.total})`
+    : `Results for “${search.text}” (showing ${search.shown} of ${search.total})`;
+  el.resultsMoreWrap.hidden = complete;
+  el.resultsNote.textContent = search.discarded
+    ? `${search.discarded} result(s) could not be verified with the API.`
+    : "";
+}
+
+function clearSearch() {
+  cancelPending();
+  if (currentSearch) currentSearch.controller.abort();
+  currentSearch = null;
   el.input.value = "";
   el.resultsSection.hidden = true;
   el.resultsGrid.replaceChildren();
-  ocultarSugerencias();
+  el.resultsMoreWrap.hidden = true;
+  el.resultsNote.textContent = "";
+  hideSuggestions();
 }
 
-// ============================================================
-//  Popup de detalle
-// ============================================================
-async function abrirDetalle(id, nombre) {
-  const token = ++tokenDetalle;
-  el.dialog.setAttribute("aria-label", `Detalle de ${nombreBonito(nombre)}`);
+// ---------------- Detail dialog (reuses the chain and its cache) ----------------
+async function openDetail(item) {
+  const token = ++detailToken;
+  el.dialog.setAttribute("aria-label", `Details for ${prettyName(item.name)}`);
 
-  if (!cacheDetalle.has(id)) {
-    el.detailBody.replaceChildren(nodo("p", "detalle__msg", `Cargando información de ${nombreBonito(nombre)}…`));
+  if (!chainCache.has(item.id)) {
+    el.detailBody.replaceChildren(createNode("p", "detail__msg", `Loading ${prettyName(item.name)}…`));
   }
   if (!el.dialog.open) el.dialog.showModal();
 
   try {
-    const datos = await obtenerDetalle(id);
-    if (token !== tokenDetalle) return;       // ya cerró o abrió otro Pokémon
-    renderDetalle(datos);
+    const data = await resolveChain(item);
+    if (token !== detailToken) return; // the dialog was closed or another Pokémon was opened
+    renderDetail(data);
   } catch (err) {
-    if (token !== tokenDetalle) return;
-    const msg = nodo("p", "detalle__msg", "No se pudo cargar la información de este Pokémon.");
-    const reintento = nodo("button", "btn btn--ghost", "Reintentar");
-    reintento.type = "button";
-    reintento.addEventListener("click", () => abrirDetalle(id, nombre));
-    msg.append(document.createElement("br"), reintento);
-    el.detailBody.replaceChildren(msg);
+    if (token !== detailToken) return;
+    const message = createNode("p", "detail__msg", "Could not load information for this Pokémon.");
+    const retry = createNode("button", "btn btn--ghost", "Retry");
+    retry.type = "button";
+    retry.addEventListener("click", () => openDetail(item));
+    message.append(document.createElement("br"), retry);
+    el.detailBody.replaceChildren(message);
   }
 }
 
-// Busca el texto en español; si no existe, usa inglés
-function textoIdioma(lista, campo) {
-  if (!lista) return "";
-  const es = lista.filter((x) => x.language.name === "es");
-  const fuente = es.length ? es : lista.filter((x) => x.language.name === "en");
-  return fuente.length ? fuente[fuente.length - 1][campo] : "";
+function createFact(title, value, wide = false) {
+  const fact = createNode("div", "fact" + (wide ? " fact--wide" : ""));
+  fact.append(createNode("dt", "", title), createNode("dd", "", value));
+  return fact;
 }
 
-function crearDato(titulo, valor, ancho = false) {
-  const d = nodo("div", "dato" + (ancho ? " dato--ancho" : ""));
-  d.append(nodo("dt", "", titulo), nodo("dd", "", valor));
-  return d;
-}
+function renderDetail({ poke, species }) {
+  const name = prettyName(poke.name);
+  const mainType = poke.types[0] && poke.types[0].type.name;
+  const mainColor = (TYPES[mainType] || [])[1] || "#c62f38";
 
-function renderDetalle({ poke, especie }) {
-  const nombre = nombreBonito(poke.name);
-  const tipos = poke.types.map((t) => TIPOS[t.type.name] || [nombreBonito(t.type.name), "#5b6577", "#ffffff"]);
-  const colorPrincipal = tipos[0]?.[1] || "#c62f38";
-
-  // Imagen grande
-  const figura = nodo("div", "detalle__img");
+  const figure = createNode("div", "detail__img");
   const img = document.createElement("img");
-  img.src = poke.sprites?.other?.["official-artwork"]?.front_default || poke.sprites?.front_default || imgOficial(poke.id);
-  img.alt = `Ilustración de ${nombre}`;
-  figura.append(img);
+  const artwork = poke.sprites && poke.sprites.other && poke.sprites.other["official-artwork"];
+  img.src = (artwork && artwork.front_default) || (poke.sprites && poke.sprites.front_default) || officialArtUrl(poke.id);
+  img.alt = `Artwork of ${name}`;
+  figure.append(img);
 
-  // Encabezado
-  const info = nodo("div", "detalle__info");
-  info.append(nodo("span", "detalle__num", numero(poke.id)), nodo("h2", "detalle__titulo", nombre));
+  const info = createNode("div", "detail__info");
+  info.append(createNode("span", "detail__num", dexNumber(poke.id)), createNode("h2", "detail__title", name));
 
-  const categoria = textoIdioma(especie?.genera, "genus");
-  if (categoria) info.append(nodo("p", "detalle__cat", categoria));
+  const genus = englishText(species && species.genera, "genus");
+  if (genus) info.append(createNode("p", "detail__category", genus));
 
-  // Tipos
-  const chips = nodo("div", "chips");
-  for (const [etiqueta, bg, fg] of tipos) {
-    const chip = nodo("span", "chip", etiqueta);
-    chip.style.setProperty("--chip-bg", bg);
-    chip.style.setProperty("--chip-fg", fg);
-    chips.append(chip);
-  }
+  const chips = createNode("div", "chips");
+  poke.types.forEach((t) => chips.append(createTypeChip(t.type.name)));
+  if (species && species.is_mythical) chips.append(createNode("span", "badge badge--mythical", "Mythical"));
+  else if (species && species.is_legendary) chips.append(createNode("span", "badge", "Legendary"));
   info.append(chips);
 
-  // Descripción (endpoint pokemon-species)
-  const descripcion = textoIdioma(especie?.flavor_text_entries, "flavor_text").replace(/[\n\f\r\u00ad]+/g, " ");
-  if (descripcion) info.append(nodo("p", "detalle__desc", descripcion));
+  const description = englishText(species && species.flavor_text_entries, "flavor_text").replace(/[\n\f\r\u00ad]+/g, " ");
+  if (description) info.append(createNode("p", "detail__description", description));
 
-  // Altura, peso y habilidades
-  const datos = nodo("dl", "datos");
-  datos.append(
-    crearDato("Altura", `${(poke.height / 10).toLocaleString("es-EC")} m`),
-    crearDato("Peso", `${(poke.weight / 10).toLocaleString("es-EC")} kg`),
-    crearDato("Habilidades", poke.abilities.map((a) => nombreBonito(a.ability.name)).join(", "), true)
+  const facts = createNode("dl", "facts");
+  facts.append(
+    createFact("Height", `${(poke.height / 10).toLocaleString("en-US")} m`),
+    createFact("Weight", `${(poke.weight / 10).toLocaleString("en-US")} kg`),
+    createFact("Abilities", poke.abilities.map((a) => prettyName(a.ability.name)).join(", "), true)
   );
-  info.append(datos);
+  info.append(facts);
 
-  // Estadísticas base (el máximo posible es 255)
-  info.append(nodo("h3", "", "Estadísticas base"));
-  const lista = nodo("ul", "stats");
+  // 255 is the maximum possible base stat.
+  info.append(createNode("h3", "", "Base stats"));
+  const list = createNode("ul", "stats");
   for (const s of poke.stats) {
-    const fila = nodo("li", "stat");
-    const barra = nodo("span", "stat__bar");
-    const relleno = nodo("span", "stat__fill");
-    relleno.style.width = `${Math.min(100, (s.base_stat / 255) * 100)}%`;
-    relleno.style.background = colorPrincipal;
-    barra.append(relleno);
-    barra.setAttribute("aria-hidden", "true");
-    fila.append(nodo("span", "stat__label", ESTADISTICAS[s.stat.name] || nombreBonito(s.stat.name)), nodo("span", "stat__val", String(s.base_stat)), barra);
-    lista.append(fila);
+    const row = createNode("li", "stat");
+    const bar = createNode("span", "stat__bar");
+    const fill = createNode("span", "stat__fill");
+    fill.style.width = `${Math.min(100, (s.base_stat / 255) * 100)}%`;
+    fill.style.background = mainColor;
+    bar.append(fill);
+    bar.setAttribute("aria-hidden", "true");
+    row.append(
+      createNode("span", "stat__label", STAT_LABELS[s.stat.name] || prettyName(s.stat.name)),
+      createNode("span", "stat__val", String(s.base_stat)),
+      bar
+    );
+    list.append(row);
   }
-  info.append(lista);
+  info.append(list);
 
-  const contenido = nodo("div", "detalle");
-  contenido.append(figura, info);
-  el.detailBody.replaceChildren(contenido);
+  const content = createNode("div", "detail");
+  content.append(figure, info);
+  el.detailBody.replaceChildren(content);
   el.detailBody.scrollTop = 0;
 }
 
-// ============================================================
-//  Eventos
-// ============================================================
-el.input.addEventListener("input", programarSugerencias);
+// ---------------- Events ----------------
+el.input.addEventListener("input", scheduleSuggestions);
 el.input.addEventListener("blur", () => {
-  cancelarEspera();
-  ocultarSugerencias();
+  cancelPending();
+  hideSuggestions();
 });
 
 el.input.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowDown") { e.preventDefault(); moverSeleccion(1); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); moverSeleccion(-1); }
-  else if (e.key === "Escape") { cancelarEspera(); ocultarSugerencias(); }
-  else if (e.key === "Enter" && indiceActivo >= 0) {
+  if (e.key === "ArrowDown") { e.preventDefault(); moveSelection(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); moveSelection(-1); }
+  else if (e.key === "Escape") { cancelPending(); hideSuggestions(); }
+  else if (e.key === "Enter" && activeIndex >= 0) {
     e.preventDefault();
-    elegirSugerencia(sugerencias[indiceActivo]);
+    selectSuggestion(suggestions[activeIndex]);
   }
 });
 
 el.form.addEventListener("submit", (e) => {
   e.preventDefault();
-  buscar();
+  runSearch();
 });
 
-el.clearSearch.addEventListener("click", limpiarBusqueda);
-el.moreBtn.addEventListener("click", cargarPagina);
+el.clearSearch.addEventListener("click", clearSearch);
+el.moreBtn.addEventListener("click", loadPage);
+el.resultsMoreBtn.addEventListener("click", () => { if (currentSearch) loadBatch(currentSearch, false); });
 
-// Botón "Regresar": cierra el popup y vuelve a la página principal
 el.backBtn.addEventListener("click", () => el.dialog.close());
 el.dialog.addEventListener("click", (e) => {
-  if (e.target === el.dialog) el.dialog.close();   // clic fuera de la ventana
+  if (e.target === el.dialog) el.dialog.close(); // click on the backdrop
 });
-el.dialog.addEventListener("close", () => { tokenDetalle++; });
+el.dialog.addEventListener("close", () => { detailToken++; });
 
-// ---------------- Inicio ----------------
-cargarPagina().then(() => cargarCatalogo().catch(() => {}));
+loadPage().then(() => loadCatalog().catch(() => {}));
