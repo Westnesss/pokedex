@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,77 +12,78 @@
 </head>
 <body>
 
-  <!-- BARRA SUPERIOR: marca + buscador -->
-  <header class="top">
-    <div class="top__inner">
-      <h1 class="brand"><span class="brand__ball" aria-hidden="true"></span>Pokédex</h1>
+<header class="top">
+  <div class="top__inner">
+    <h1 class="brand"><span class="brand__ball" aria-hidden="true"></span>Pokédex</h1>
 
-      <form class="search" id="searchForm" role="search" autocomplete="off">
-        <div class="search__field">
-          <input
-            id="searchInput"
-            type="text"
-            placeholder="Busca un Pokémon (nombre o número)"
-            aria-label="Buscar Pokémon"
-            role="combobox"
-            aria-expanded="false"
-            aria-controls="suggestions"
-            aria-autocomplete="both">
-          <button type="submit" class="search__btn" aria-label="Buscar">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <circle cx="11" cy="11" r="7"></circle>
-              <path d="m20 20-3.5-3.5"></path>
-            </svg>
-          </button>
-        </div>
-        <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
-      </form>
+    <form class="search" id="searchForm" role="search" autocomplete="off">
+      <div class="search__field">
+        <input
+                id="searchInput"
+                type="text"
+                placeholder="Search for a Pokémon (name or number)"
+                aria-label="Search Pokémon"
+                role="combobox"
+                aria-expanded="false"
+                aria-controls="suggestions"
+                aria-autocomplete="both">
+        <button type="submit" class="search__btn" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m20 20-3.5-3.5"></path>
+          </svg>
+        </button>
+      </div>
+      <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+    </form>
+  </div>
+</header>
+
+<main>
+  <section id="resultsSection" class="block block--results" hidden aria-live="polite">
+    <div class="block__head">
+      <h2 id="resultsTitle"></h2>
+      <button type="button" class="btn btn--ghost" id="clearSearch">Clear search</button>
     </div>
-  </header>
-
-  <main>
-    <!-- RESULTADOS DE LA BÚSQUEDA (aparecen al presionar la lupa) -->
-    <section id="resultsSection" class="block block--results" hidden aria-live="polite">
-      <div class="block__head">
-        <h2 id="resultsTitle"></h2>
-        <button type="button" class="btn btn--ghost" id="clearSearch">Limpiar búsqueda</button>
-      </div>
-      <div id="resultsGrid" class="grid"></div>
-    </section>
-
-    <!-- LISTA PRINCIPAL (endpoint 1, paginada) -->
-    <section class="block">
-      <div class="block__head">
-        <h2>Todos los Pokémon</h2>
-        <span id="count" class="muted"></span>
-      </div>
-      <div id="status" class="status" role="status"></div>
-      <div id="grid" class="grid"></div>
-      <div id="moreWrap" class="more" hidden>
-        <button type="button" class="btn btn--primary" id="moreBtn">Cargar más</button>
-      </div>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <h2>Endpoints de PokeAPI usados</h2>
-    <ul>
-      <li><code>GET /pokemon?limit=24&amp;offset=0</code> — lista paginada de Pokémon (también el catálogo para buscar)</li>
-      <li><code>GET /pokemon/{id}</code> — imagen, tipos, medidas, habilidades y estadísticas</li>
-      <li><code>GET /pokemon-species/{id}</code> — categoría y descripción en español</li>
-    </ul>
-  </footer>
-
-  <!-- POPUP DE DETALLE -->
-  <dialog id="detailDialog" aria-label="Detalle del Pokémon">
-    <div id="detailBody" class="modal__body"></div>
-    <div class="modal__footer">
-      <button type="button" class="btn btn--dark" id="backBtn">← Regresar</button>
+    <p id="resultsNote" class="status" role="status"></p>
+    <div id="resultsGrid" class="grid"></div>
+    <div id="resultsMoreWrap" class="more" hidden>
+      <button type="button" class="btn btn--ghost" id="resultsMoreBtn">Load more results</button>
     </div>
-  </dialog>
+  </section>
 
-  <!-- Lodash: se usa solo para _.debounce (retraso del autocompletado) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
-  <script src="app.js"></script>
+  <section class="block">
+    <div class="block__head">
+      <h2>All Pokémon</h2>
+      <span id="count" class="muted"></span>
+    </div>
+    <div id="status" class="status" role="status"></div>
+    <div id="grid" class="grid"></div>
+    <div id="moreWrap" class="more" hidden>
+      <button type="button" class="btn btn--primary" id="moreBtn">Load more</button>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <h2>Chained PokeAPI endpoints</h2>
+  <ol>
+    <li><code>GET /pokemon?limit=…</code> — Pokémon list; each result includes the URL of the next endpoint in the chain</li>
+    <li><code>GET {result url}</code> (<code>/pokemon/{name}</code>) — confirms the Pokémon exists; types, measurements and stats</li>
+    <li><code>GET {species.url}</code> (<code>/pokemon-species/{name}</code>) — URL taken from step 2: genus, description and legendary status</li>
+  </ol>
+</footer>
+
+<dialog id="detailDialog" aria-label="Pokémon details">
+  <div id="detailBody" class="modal__body"></div>
+  <div class="modal__footer">
+    <button type="button" class="btn btn--dark" id="backBtn">← Back</button>
+  </div>
+</dialog>
+
+<!-- Lodash is only used for _.debounce -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
