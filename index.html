@@ -47,7 +47,11 @@
         <h2 id="resultsTitle"></h2>
         <button type="button" class="btn btn--ghost" id="clearSearch">Limpiar búsqueda</button>
       </div>
+      <p id="resultsNote" class="status" role="status"></p>
       <div id="resultsGrid" class="grid"></div>
+      <div id="resultsMoreWrap" class="more" hidden>
+        <button type="button" class="btn btn--ghost" id="resultsMoreBtn">Cargar más resultados</button>
+      </div>
     </section>
 
     <!-- LISTA PRINCIPAL (endpoint 1, paginada) -->
@@ -65,12 +69,12 @@
   </main>
 
   <footer class="foot">
-    <h2>Endpoints de PokeAPI usados</h2>
-    <ul>
-      <li><code>GET /pokemon?limit=24&amp;offset=0</code> — lista paginada de Pokémon (también el catálogo para buscar)</li>
-      <li><code>GET /pokemon/{id}</code> — imagen, tipos, medidas, habilidades y estadísticas</li>
-      <li><code>GET /pokemon-species/{id}</code> — categoría y descripción en español</li>
-    </ul>
+    <h2>Endpoints de PokeAPI encadenados</h2>
+    <ol>
+      <li><code>GET /pokemon?limit=…</code> — lista de Pokémon; cada resultado trae la URL del siguiente eslabón</li>
+      <li><code>GET {url del resultado}</code> (<code>/pokemon/{nombre}</code>) — verifica que existe; tipos, medidas y estadísticas</li>
+      <li><code>GET {species.url}</code> (<code>/pokemon-species/{nombre}</code>) — URL tomada del paso 2: categoría, descripción y si es legendario</li>
+    </ol>
   </footer>
 
   <!-- POPUP DE DETALLE -->
@@ -83,6 +87,7 @@
 
   <!-- Lodash: se usa solo para _.debounce (retraso del autocompletado) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+  <script src="api.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
