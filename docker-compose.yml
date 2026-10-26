@@ -1,0 +1,10 @@
+name: pokedex
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USER:-local}/pokedex-web:${IMAGE_TAG:-dev}
+    ports:
+      - "${WEB_PORT:-8090}:80"

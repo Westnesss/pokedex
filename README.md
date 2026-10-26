@@ -6,7 +6,7 @@ detailed information of each Pokémon.
 Built with plain HTML, CSS, and JavaScript: **no frameworks and no custom backend**. The only third-party
 library is [Lodash](https://lodash.com/) (loaded from a CDN), used for `_.debounce`.
 
-**Live demo:** <!-- If you publish it with GitHub Pages, paste the link here: https://YOUR_USERNAME.github.io/REPO_NAME/ -->
+**Live demo:** <!-- Paste the deployed URL here -->
 
 <!-- When you have a screenshot, save it as docs/screenshot.png and remove the comment marks:
 ![Pokédex screenshot](docs/screenshot.png)
@@ -14,14 +14,14 @@ library is [Lodash](https://lodash.com/) (loaded from a CDN), used for `_.deboun
 
 ## Features
 
-- Paginated list of Pokémon with official artwork, number, and name (**Cargar más** / "Load more" button).
-- **Search by name or number** powered by a chain of three dependent requests (see below), with
-  richer results: types, category, and a *Legendario* / *Mítico* badge.
+- Paginated list of Pokémon with official artwork, number, and name (**Load more** button).
+- **Search by name or number** powered by a chain of three dependent requests (see below), with richer
+  results: types, category, and a *Legendary* / *Mythical* badge.
 - **Autocomplete with a 4-second debounce** (Lodash). The delay is silent: nothing is shown while waiting.
   When the user stops typing, suggestions appear and the first match completes the word in the input.
   The magnifier button and Enter search immediately.
-- Detail popup when clicking a card: large image, types, category, description in Spanish, height, weight,
-  abilities, and base stats. It closes with the **Regresar** ("Back") button, with Escape, or by clicking outside.
+- Detail popup when clicking a card: large image, types, category, description, height, weight, abilities,
+  and base stats. It closes with the **Back** button, with Escape, or by clicking outside.
 - Cards scale up when the mouse hovers over them.
 - Responsive design (mobile, tablet, and desktop) using CSS Grid and Flexbox.
 
@@ -40,7 +40,7 @@ GET {item.url}                   ← link 2: confirms the Pokémon exists (404 �
    │                               returns types, stats, sprites
    │  poke.species.url
    ▼
-GET {poke.species.url}           ← link 3: category, Spanish description, legendary / mythical flag
+GET {poke.species.url}           ← link 3: category, description, legendary / mythical flag
 ```
 
 ### Request validation
@@ -53,7 +53,7 @@ GET {poke.species.url}           ← link 3: category, Spanish description, lege
 | Every response | Minimum expected shape (`id`, `name`, `types`, `stats`, `species.url`, …) |
 | Results | Failed candidates are discarded and reported; a failed link 3 still shows the Pokémon without that extra data |
 
-Results are fetched in **batches of 12** (button **Cargar más resultados**), completed chains are cached, and
+Results are fetched in **batches of 12** (**Load more results** button), completed chains are cached, and
 starting a new search cancels the previous one that was still in flight.
 
 ## PokeAPI endpoints used
@@ -75,10 +75,15 @@ HTML5 · CSS3 (Grid, Flexbox, CSS variables, `<dialog>`) · JavaScript (ES6+, `f
 
 ```
 .
-├── index.html     # page and popup markup
-├── styles.css     # responsive styles, hover effect, popup, skeleton loaders
+├── index.html     # page and dialog markup
+├── styles.css     # responsive styles, hover effect, dialog, skeleton loaders
 ├── api.js         # data layer: validation, requests, endpoint chain (no DOM access)
-├── app.js         # UI: cards, debounced autocomplete, search flow, popup
+├── app.js         # UI: cards, debounced autocomplete, search flow, dialog
+├── Dockerfile     # nginx image serving the static site
+├── docker/
+│   └── nginx.conf
+├── docker-compose.yml
+├── DOCKER.md
 └── README.md
 ```
 
@@ -95,9 +100,9 @@ You only need a modern browser and an internet connection.
 
 2. **Serve it with a local server**, for example:
 
-   - In **IntelliJ / WebStorm:** open `index.html` and use the browser icons in the top-right corner of the editor.
-   - In **VS Code:** *Live Server* extension → right-click `index.html` → *Open with Live Server*.
-   - With **Node.js:**
+   - **IntelliJ / WebStorm:** open `index.html` and use the browser icons in the top-right corner of the editor.
+   - **VS Code:** *Live Server* extension → right-click `index.html` → *Open with Live Server*.
+   - **Node.js:**
 
      ```bash
      npx serve .
@@ -109,19 +114,33 @@ You only need a modern browser and an internet connection.
 
 | File | Constant | Description | Value |
 |---|---|---|---|
-| `app.js` | `POR_PAGINA` | Cards loaded each time in the main list | `24` |
-| `app.js` | `RETRASO_MS` | Debounce delay before suggesting and autocompleting | `4000` (4 s) |
-| `app.js` | `LOTE_RESULTADOS` | Search results completed per batch | `12` |
+| `app.js` | `PAGE_SIZE` | Cards loaded each time in the main list | `24` |
+| `app.js` | `DEBOUNCE_MS` | Debounce delay before suggesting and autocompleting | `4000` (4 s) |
+| `app.js` | `RESULTS_BATCH_SIZE` | Search results completed per batch | `12` |
 | `api.js` | `TIMEOUT_MS` | Maximum time per request | `8000` (8 s) |
-| `api.js` | `MAX_CONSULTA` | Maximum length of the search text | `30` |
+| `api.js` | `MAX_QUERY_LENGTH` | Maximum length of the search text | `30` |
+
+## Docker
+
+The site is served by nginx from a small image (`pokedex-web`). No database or backend is needed.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Open [http://localhost:8090](http://localhost:8090). More details (publishing images, tags per environment) in [DOCKER.md](DOCKER.md).
 
 ## Git workflow
 
-- `main` always contains a working version. Work happens in short-lived branches named `type/short-description`
-  (`feature/`, `fix/`, `docs/`, `refactor/`, `chore/`) and is merged through **Pull Requests**.
+- Two long-lived branches: `test` (integration) and `main` (production). Local development happens in feature branches.
+- One branch per Jira task, created from `test`: `<type>/<JIRA-KEY>-short-description`
+  (`feature/`, `fix/`, `refactor/`), for example `refactor/WEB-12-translate-ui-to-english`.
+- A feature is tested locally first, then merged into `test` through a Pull Request. Direct pushes are not allowed.
+- `test` is promoted to `main` through a Pull Request reviewed by the instructor.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
-  `type(scope): short imperative summary`, for example `feat(api): chain list, detail and species endpoints`.
-- One logical change per commit.
+  `type(scope): short imperative summary`. One logical change per commit.
+- Feature branches are deleted once merged. Stable versions are marked with tags (`v1.0.0`).
 
 ## Credits
 
@@ -130,6 +149,4 @@ You only need a modern browser and an internet connection.
 - Pokémon and their names are trademarks of Nintendo, Game Freak, and The Pokémon Company.
   This is a non-profit educational project.
 
-## Author
 
-**[Your name]** · [Course / University] · [Year]

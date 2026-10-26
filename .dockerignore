@@ -1,0 +1,7 @@
+# Allow-list: only what the image needs goes into the build context.
+*
+!index.html
+!styles.css
+!api.js
+!app.js
+!docker/nginx.conf
